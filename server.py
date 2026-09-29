@@ -224,6 +224,84 @@ def get_activity(activity_id: int) -> dict:
 
 
 @mcp.tool()
+def get_activity_track(activity_id: int, max_points: int = 1000) -> dict:
+    """Get an activity's GPS/sensor track sample by sample: latitude,
+    longitude, elevation, elapsed and moving time, distance, heart rate,
+    speed, power, cadence, and e-bike assist mode / battery level when the
+    device recorded them.
+
+    Use this to time a segment between two GPS points (e.g. a climb), compute
+    VAM or gradient, or inspect the power and e-bike assist profile that the
+    summary and laps hide. Only channels actually present are returned, listed
+    in "channels".
+
+    The track is evenly downsampled to at most max_points samples to keep the
+    response compact; raise max_points for finer segment timing.
+
+    Args:
+        activity_id: The activity id from list_activities.
+        max_points: Max samples to return, evenly downsampled (1..5000).
+    """
+    g = _client()
+    max_points = max(1, min(int(max_points), 5000))
+    fetch = max(2000, max_points)
+    detail = _try(g.get_activity_details, activity_id, maxchart=fetch, maxpoly=fetch) or {}
+    idx = {m.get("key"): m.get("metricsIndex") for m in (detail.get("metricDescriptors") or [])}
+    rows = [r.get("metrics") for r in (detail.get("activityDetailMetrics") or []) if r.get("metrics")]
+
+    # Output field name -> (Garmin descriptor key, rounding decimals or None)
+    fields = [
+        ("lat", "directLatitude", 6),
+        ("lon", "directLongitude", 6),
+        ("elevation_m", "directElevation", 1),
+        ("t_s", "sumDuration", 1),
+        ("moving_s", "sumMovingDuration", 1),
+        ("distance_m", "sumDistance", 0),
+        ("hr", "directHeartRate", 0),
+        ("speed_mps", "directSpeed", 2),
+        ("power_w", "directPower", 0),
+        ("cadence_rpm", "directBikeCadence", 0),
+        ("assist_mode", "directEbikeAssistMode", 0),
+        ("battery_pct", "directEbikeBatteryLevel", 0),
+        ("air_temp_c", "directAirTemperature", 0),
+    ]
+    present = [(name, idx[key], nd) for name, key, nd in fields if key in idx]
+
+    # Prefer GPS samples so downsampling keeps points usable for segment timing.
+    lat_i = idx.get("directLatitude")
+    lon_i = idx.get("directLongitude")
+    if lat_i is not None and lon_i is not None:
+        gps = [r for r in rows if len(r) > max(lat_i, lon_i)
+               and r[lat_i] is not None and r[lon_i] is not None]
+        if gps:
+            rows = gps
+
+    total = len(rows)
+    if total > max_points:
+        step = total / max_points
+        rows = [rows[int(i * step)] for i in range(max_points)]
+
+    points = []
+    for r in rows:
+        pt = {}
+        for name, i, nd in present:
+            v = r[i] if len(r) > i else None
+            if v is None:
+                continue
+            pt[name] = round(v, nd) if nd else (int(round(v)) if isinstance(v, (int, float)) else v)
+        if pt:
+            points.append(pt)
+
+    return {
+        "id": activity_id,
+        "channels": [name for name, _, _ in present],
+        "total_samples": total,
+        "returned_samples": len(points),
+        "points": points,
+    }
+
+
+@mcp.tool()
 def daily_wellness(date: str) -> dict:
     """Daily wellness snapshot for one date: steps, calories, resting and
     min/max heart rate, stress, body battery, and intensity minutes.
