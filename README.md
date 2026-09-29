@@ -4,11 +4,12 @@ An MCP server that gives Claude access to your Garmin Connect data, the same dat
 
 ## What it exposes
 
-The server wraps Garmin Connect through the [garminconnect](https://github.com/cyberjunky/python-garminconnect) library and provides eight tools.
+The server wraps Garmin Connect through the [garminconnect](https://github.com/cyberjunky/python-garminconnect) library and provides nine tools.
 
 - `get_profile` returns the logged in account's name and unit system.
 - `list_activities` lists activities between two dates for any sport, with duration, distance, calories, heart rate, training effect, and sport specific extras such as SWOLF for swims or set counts for strength work.
 - `get_activity` returns one activity in detail, laps and splits, time in heart rate zones, and for strength sessions each exercise set with reps and weight.
+- `get_activity_track` returns an activity's sample by sample track: latitude, longitude, elevation, elapsed and moving time, distance, heart rate, speed, power, cadence, and e-bike assist mode and battery level when recorded. Use it to time a segment between two GPS points, compute VAM or gradient, or inspect the power and assist profile the summary hides. Evenly downsampled to `max_points` (default 1000) to stay compact.
 - `daily_wellness` returns one day's steps, calories, resting heart rate, stress, body battery, and intensity minutes.
 - `wellness_range` returns compact day by day wellness rows across up to 31 days, useful for judging recovery trend before planning a week.
 - `get_sleep` returns one night's duration, stages, sleep score, overnight resting HR and HRV, and body battery change.
