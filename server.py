@@ -267,19 +267,43 @@ def get_activity_track(activity_id: int, max_points: int = 1000) -> dict:
     ]
     present = [(name, idx[key], nd) for name, key, nd in fields if key in idx]
 
-    # Prefer GPS samples so downsampling keeps points usable for segment timing.
     lat_i = idx.get("directLatitude")
     lon_i = idx.get("directLongitude")
-    if lat_i is not None and lon_i is not None:
-        gps = [r for r in rows if len(r) > max(lat_i, lon_i)
-               and r[lat_i] is not None and r[lon_i] is not None]
-        if gps:
-            rows = gps
+
+    def _has_fix(k: int) -> bool:
+        r = rows[k]
+        return (lat_i is not None and lon_i is not None
+                and len(r) > max(lat_i, lon_i)
+                and r[lat_i] is not None and r[lon_i] is not None)
 
     total = len(rows)
     if total > max_points:
-        step = total / max_points
-        rows = [rows[int(i * step)] for i in range(max_points)]
+        last = total - 1
+        # Evenly spaced picks that always include the first and last sample,
+        # so a segment ending at the finish can still be timed.
+        if max_points == 1:
+            picks = [0]
+        else:
+            picks = [round(i * last / (max_points - 1)) for i in range(max_points)]
+        # Nudge each pick to the nearest sample with a GPS fix, within half a
+        # step, so points stay usable for segment timing. Samples recorded
+        # during a GPS dropout are kept rather than discarded, so heart rate
+        # and power through a tunnel or before the first fix are not lost.
+        if lat_i is not None and lon_i is not None:
+            radius = max(1, last // (2 * max(1, max_points - 1)))
+            nudged = []
+            for k in picks:
+                if not _has_fix(k):
+                    for d in range(1, radius + 1):
+                        if k - d >= 0 and _has_fix(k - d):
+                            k -= d
+                            break
+                        if k + d <= last and _has_fix(k + d):
+                            k += d
+                            break
+                nudged.append(k)
+            picks = sorted(set(nudged))
+        rows = [rows[k] for k in picks]
 
     points = []
     for r in rows:
